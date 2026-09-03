@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Botanical Walk</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,500;0,600;1,400&family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0d1b12; font-family:'Space Mono', monospace; }
+  canvas { display:block; }
+
+  #crosshair {
+    position:fixed; top:50%; left:50%; width:6px; height:6px;
+    transform:translate(-50%,-50%);
+    border-radius:50%;
+    background:rgba(255,255,255,0.85);
+    box-shadow:0 0 0 1px rgba(0,0,0,0.4);
+    pointer-events:none;
+    transition: transform 0.12s ease, background 0.12s ease;
+    z-index:20;
+  }
+  #crosshair.hover {
+    transform:translate(-50%,-50%) scale(2.4);
+    background:#e8c15a;
+  }
+
+  #hint {
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+    color:#e9e4d8; font-size:12px; letter-spacing:0.08em; text-transform:uppercase;
+    background:rgba(13,27,18,0.55); padding:10px 18px; border-radius:20px;
+    border:1px solid rgba(233,228,216,0.25);
+    pointer-events:none; z-index:20; opacity:0.9;
+  }
+
+  #loadingScreen {
+    position:fixed; inset:0; background:#0d1b12; z-index:60;
+    display:flex; align-items:center; justify-content:center;
+    color:#9fb0a1; font-size:12px; letter-spacing:0.14em; text-transform:uppercase;
+  }
+
+  #startScreen {
+    position:fixed; inset:0; background:
+      radial-gradient(ellipse at 50% 30%, #1e3a26 0%, #0d1b12 70%);
+    display:none; flex-direction:column; align-items:center; justify-content:center;
+    z-index:50; color:#f2ede0; text-align:center; cursor:pointer;
+  }
+  #startScreen h1 {
+    font-family:'Fraunces', serif; font-weight:500; font-style:italic;
+    font-size:clamp(32px, 6vw, 64px); color:#f2ede0; letter-spacing:0.01em;
+    margin-bottom:14px;
+  }
+  #startScreen p {
+    font-size:13px; letter-spacing:0.12em; text-transform:uppercase; color:#9fb0a1;
+    margin-bottom:34px;
+  }
+  #startBtn {
+    font-family:'Space Mono', monospace; font-size:13px; letter-spacing:0.1em;
+    text-transform:uppercase; color:#0d1b12; background:#e8c15a;
+    border:none; padding:16px 38px; border-radius:2px; cursor:pointer;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  #startBtn:hover { background:#f2d27a; transform:translateY(-2px); }
+
+  #panel {
+    position:fixed; top:0; right:0; width:min(560px, 94vw); height:100%;
+    background:
+      radial-gradient(ellipse 900px 500px at 100% 0%, rgba(122,138,95,0.06), transparent 60%),
+      #f2ede0;
+    color:#1c2a1f;
+    transform:translateX(100%); transition:transform 0.4s cubic-bezier(.19,1,.22,1);
+    z-index:40; box-shadow:-16px 0 50px rgba(0,0,0,0.45);
+    display:flex; flex-direction:column;
+    border-left:1px solid rgba(28,42,31,0.15);
+  }
+  #panel.open { transform:translateX(0); }
+
+  /* colored accent bar along the top — changes per specimen */
+  #panel::before {
+    content:""; position:absolute; top:0; left:0; right:0; height:5px;
+    background:var(--accent, #7a8a5f);
+  }
+
+  #panelClose {
+    position:absolute; top:20px; right:22px; z-index:2;
+    width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid rgba(28,42,31,0.22);
+    font-family:'Space Mono', monospace; font-size:14px;
+    color:#5a6b5c; cursor:pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  }
+  #panelClose:hover { color:#1c2a1f; border-color:#1c2a1f; transform:rotate(90deg); }
+
+  .panel-inner { padding:56px 44px 40px; overflow-y:auto; scrollbar-width:thin; }
+  .panel-inner::-webkit-scrollbar { width:5px; }
+  .panel-inner::-webkit-scrollbar-thumb { background:rgba(28,42,31,0.18); border-radius:4px; }
+
+  /* ---- specimen header: stamp number + classification line ---- */
+  .panel-header {
+    display:flex; align-items:flex-start; gap:14px; margin-bottom:22px;
+  }
+  .panel-stamp {
+    flex-shrink:0; width:44px; height:44px; border-radius:50%;
+    border:1.5px solid var(--accent, #7a8a5f);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Mono', monospace; font-size:12px; font-weight:700;
+    color:var(--accent, #7a8a5f);
+  }
+  .panel-classification {
+    padding-top:4px;
+  }
+  .panel-eyebrow {
+    font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
+    color:#7a8a5f;
+  }
+  .panel-eyebrow .divider { margin:0 6px; opacity:0.5; }
+  .panel-family { font-style:italic; color:#8a9a7f; }
+
+  .panel-name {
+    font-family:'Fraunces', serif; font-weight:500; font-size:34px;
+    line-height:1.08; margin-bottom:3px; color:#1c2a1f; letter-spacing:-0.01em;
+  }
+  .panel-latin {
+    font-family:'Fraunces', serif; font-style:italic; font-weight:300;
+    font-size:16px; color:#5a6b5c; margin-bottom:26px;
+    padding-bottom:22px; border-bottom:1px solid rgba(28,42,31,0.1);
+  }
+
+  /* ---- specimen plate (illustration) ---- */
+  .panel-swatch {
+    position:relative;
+    width:100%; height:158px; border-radius:3px; margin-bottom:10px;
+    overflow:hidden;
+    border:1px solid rgba(28,42,31,0.14);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.5), inset 0 -22px 34px -12px rgba(0,0,0,0.22);
+  }
+  .panel-swatch::before {
+    content:"";
+    position:absolute; inset:0;
+    background:
+      radial-gradient(circle at 18% 20%, rgba(255,255,255,0.4), transparent 45%),
+      radial-gradient(circle at 88% 82%, rgba(0,0,0,0.22), transparent 55%);
+    mix-blend-mode:overlay;
+  }
+  .panel-swatch-icon {
+    position:absolute; right:-14px; bottom:-14px; width:150px; height:150px;
+    stroke:rgba(255,255,255,0.28); stroke-width:1.4; fill:none;
+  }
+  .panel-plate-caption {
+    font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
+    color:#9aa593; margin-bottom:26px; text-align:right;
+  }
+
+  .panel-section { margin-bottom:26px; }
+  .panel-label {
+    display:flex; align-items:center; gap:7px;
+    font-size:10px; letter-spacing:0.14em; text-transform:uppercase;
+    color:#5a6b5c; margin-bottom:10px; font-weight:700;
+  }
+  .panel-label::before {
+    content:""; width:7px; height:7px; border-radius:1px;
+    background:var(--accent, #7a8a5f); flex-shrink:0;
+    transform:rotate(45deg);
+  }
+  .panel-text {
+    font-family:'Fraunces', serif; font-weight:300; font-size:15px;
+    line-height:1.65; color:#2c3a2e;
+  }
+
+  .panel-stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .stat-row {
+    padding:10px 12px; border-radius:4px;
+    background:rgba(122,138,95,0.06);
+    border-top:2px solid var(--accent, #7a8a5f);
+  }
+  .stat-row span:first-child {
+    display:block; color:#7a8a5f; text-transform:uppercase; letter-spacing:0.06em;
+    font-size:9.5px; margin-bottom:4px;
+  }
+  .stat-row span:last-child { font-family:'Fraunces', serif; font-style:italic; font-size:13px; }
+
+  /* ---- indications list (replaces pill tags) ---- */
+  .panel-tags { display:flex; flex-direction:column; }
+  .panel-tag {
+    display:flex; align-items:baseline; gap:10px;
+    font-family:'Fraunces', serif; font-size:13.5px; color:#2c3a2e;
+    padding:8px 0; border-bottom:1px dotted rgba(28,42,31,0.15);
+  }
+  .panel-tag:last-child { border-bottom:none; }
+  .panel-tag::before {
+    content:"✦"; color:var(--accent, #7a8a5f); font-size:10px;
+    font-family:'Space Mono', monospace; flex-shrink:0;
+  }
+
+  @media (max-width:520px){
+    .panel-stats-grid { grid-template-columns:1fr; }
+    .panel-inner { padding:56px 28px 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">growing the garden…</div>
+
+<div id="startScreen">
+  <h1>a quiet walk through the garden</h1>
+  <p>Move close to a plant and click on it to learn more</p>
+  <button id="startBtn">Enter the garden</button>
+</div>
+
+<div id="crosshair"></div>
+<div id="hint">WASD to walk · mouse to look · click a plant · ESC to release cursor</div>
+
+<div id="panel">
+  <button id="panelClose">✕</button>
+  <div class="panel-inner" id="panelInner"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ---------------------------------------------------------
+   PLANT DATA
+--------------------------------------------------------- */
+const PLANT_DATA = [
+  {
+    key: 'lavender', name: 'Lavender', latin: 'Lavandula angustifolia', family: 'Lamiaceae',
+    color: '#8672b0', eyebrow: 'Aromatic shrub',
+    description: "A low, silvery-leafed shrub whose violet flower spikes carry one of the garden's most recognizable scents. Bees and butterflies favor it heavily in midsummer.",
+    stats: [['Native range','Mediterranean'],['Bloom season','Jun – Aug'],['Sunlight','Full sun'],['Water needs','Low, drought-tolerant']],
+    medicinal: "The flower spikes are steam-distilled into an essential oil valued in aromatherapy and folk medicine for its calming, mildly sedative effect. Diluted oil is also dabbed on minor cuts and insect bites for its gentle antiseptic properties.",
+    cures: ['Anxiety & stress', 'Insomnia', 'Headaches', 'Minor cuts & bites (antiseptic)']
+  },
+  {
+    key: 'fern', name: 'Wood Fern', latin: 'Dryopteris filix-mas', family: 'Dryopteridaceae',
+    color: '#3f6b3a', eyebrow: 'Shade perennial',
+    description: "An old, feathery-leaved plant that reproduces by spores rather than flowers. It thrives in the cool, damp shade beneath taller trees and shrubs.",
+    stats: [['Native range','Temperate woodlands'],['Bloom season','Never flowers'],['Sunlight','Deep shade'],['Water needs','Consistently moist']],
+    medicinal: "The rhizome (root) was historically prepared as an extract to expel intestinal parasites. Modern herbal practice has largely moved away from it, since the same compounds that paralyze worms are toxic to humans at higher doses — it's a case where the history is more relevant than the practice.",
+    cures: ['Intestinal worms (historical use — toxic, not recommended today)']
+  },
+  {
+    key: 'rose', name: 'Garden Rose', latin: 'Rosa × damascena', family: 'Rosaceae',
+    color: '#c05a68', eyebrow: 'Flowering shrub',
+    description: "Layered, fragrant blooms atop thorned woody stems. Cultivated for thousands of years, it remains the archetypal garden flower across cultures.",
+    stats: [['Native range','Cultivated hybrid'],['Bloom season','May – Sep'],['Sunlight','Full sun'],['Water needs','Moderate, regular']],
+    medicinal: "Petals are distilled into rose water, a staple in traditional skincare for its soothing, mildly astringent effect, and steeped into teas said to ease digestion and calm the mood. Rosehip (the fruit left after petals fall) is separately prized for its vitamin C content.",
+    cures: ['Skin irritation & dryness', 'Mild digestive discomfort', 'Sore throat', 'Stress & low mood']
+  },
+  {
+    key: 'sunflower', name: 'Sunflower', latin: 'Helianthus annuus', family: 'Asteraceae',
+    color: '#e0a634', eyebrow: 'Tall annual',
+    description: "A fast-growing annual whose broad flower head tracks the sun across the sky while young, a behavior called heliotropism.",
+    stats: [['Native range','North America'],['Bloom season','Jul – Sep'],['Sunlight','Full sun'],['Water needs','Moderate']],
+    medicinal: "Pressed seed oil is rich in vitamin E and unsaturated fats, and is used both as a cooking oil and a skin-softening emollient. Folk remedies also apply it topically to support wound healing and ease joint stiffness.",
+    cures: ['High cholesterol support', 'Dry or irritated skin', 'Joint stiffness (topical oil massage)']
+  },
+  {
+    key: 'succulent', name: 'Echeveria', latin: 'Echeveria elegans', family: 'Crassulaceae',
+    color: '#7fae7a', eyebrow: 'Succulent rosette',
+    description: "Thick, water-storing leaves form a tight rosette shape, an adaptation for surviving long dry spells in rocky, arid terrain.",
+    stats: [['Native range','Mexico'],['Bloom season','Spring'],['Sunlight','Full sun'],['Water needs','Very low']],
+    medicinal: "Echeveria isn't a well-documented medicinal herb the way its succulent cousin aloe vera is, but some regional folk traditions rub the cut leaf's gel-like sap on minor skin irritation for a light cooling effect. Evidence for this is mostly anecdotal.",
+    cures: ['Minor skin irritation (folk use, limited evidence)']
+  },
+  {
+    key: 'bamboo', name: 'Bamboo', latin: 'Phyllostachys aurea', family: 'Poaceae',
+    color: '#9bbf5a', eyebrow: 'Woody grass',
+    description: "Technically a grass, not a tree. Hollow, segmented culms can grow astonishingly fast, sometimes over half a meter in a single day.",
+    stats: [['Native range','East Asia'],['Bloom season','Rare, decades apart'],['Sunlight','Partial sun'],['Water needs','Moderate to high']],
+    medicinal: "In Traditional Chinese Medicine, bamboo leaf extract is classed as a 'cooling' herb, brewed into teas meant to bring down fever and soothe a phlegmy cough. Young shoots are also eaten as a fiber-rich food thought to support digestion.",
+    cures: ['Fever (as a cooling herbal tea)', 'Cough & phlegm', 'Digestive support (dietary fiber)']
+  },
+  {
+    key: 'elephant-ear', name: 'Elephant Ear', latin: 'Alocasia macrorrhiza', family: 'Araceae',
+    color: '#2f6b3f', eyebrow: 'Broad-leaved tropical',
+    description: "A dramatic tropical perennial known for its huge, heart-shaped leaves, which can grow over a meter long in the right conditions and bring a jungle feel to shaded corners.",
+    stats: [['Native range','Southeast Asia'],['Bloom season','Rarely flowers indoors'],['Sunlight','Bright, indirect'],['Water needs','High, keep moist']],
+    medicinal: "In parts of Southeast Asia, the underground corm — only after careful cooking to neutralize its natural irritants — has a place in traditional remedies for swelling and insect bites. The raw plant contains calcium oxalate crystals that irritate skin and mouth, so this is not something to try untreated.",
+    cures: ['Swelling & insect bites (topical, traditional use of prepared corm)']
+  }
+];
+PLANT_DATA.forEach((p, i) => { p.number = String(i + 1).padStart(2, '0'); });
+
+/* ---------------------------------------------------------
+   THREE.JS SETUP
+--------------------------------------------------------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfe0d0);
+scene.fog = new THREE.Fog(0xbfe0d0, 14, 65);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 200);
+camera.position.set(0, 1.7, 8);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+const hemi = new THREE.HemisphereLight(0xffffff, 0x3a5a3a, 0.9);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d0, 1.1);
+sun.position.set(15, 20, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left = -25; sun.shadow.camera.right = 25;
+sun.shadow.camera.top = 25; sun.shadow.camera.bottom = -25;
+scene.add(sun);
+
+/* ---------------------------------------------------------
+   SUN
+   A small bright core plus a soft canvas-gradient glow sprite,
+   placed far away along the directional light's direction so
+   it visually matches where the light is coming from.
+--------------------------------------------------------- */
+function makeGlowTexture(){
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const grd = ctx.createRadialGradient(128,128,0,128,128,128);
+  grd.addColorStop(0, 'rgba(255,250,225,1)');
+  grd.addColorStop(0.35, 'rgba(255,230,160,0.55)');
+  grd.addColorStop(1, 'rgba(255,230,160,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(canvas);
+}
+
+const sunDistance = 90;
+const sunDir = sun.position.clone().normalize();
+const sunWorldPos = sunDir.multiplyScalar(sunDistance);
+
+const sunCore = new THREE.Mesh(
+  new THREE.SphereGeometry(3, 16, 16),
+  new THREE.MeshBasicMaterial({ color:0xfff6da, fog:false })
+);
+sunCore.position.copy(sunWorldPos);
+scene.add(sunCore);
+
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: makeGlowTexture(), transparent:true, depthWrite:false, fog:false
+}));
+sunGlow.scale.set(32, 32, 1);
+sunGlow.position.copy(sunWorldPos);
+scene.add(sunGlow);
+
+// Ground
+const groundGeo = new THREE.PlaneGeometry(140, 140, 1, 1);
+const groundMat = new THREE.MeshStandardMaterial({ color:0x4d7546, roughness:1 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Simple winding path
+const pathShape = new THREE.PlaneGeometry(3, 60);
+const pathMat = new THREE.MeshStandardMaterial({ color:0x6f4e33, roughness:1 });
+const path = new THREE.Mesh(pathShape, pathMat);
+path.rotation.x = -Math.PI/2;
+path.position.set(0, 0.01, -10);
+path.receiveShadow = true;
+scene.add(path);
+
+/* ---------------------------------------------------------
+   SHARED BLADE / LEAF / PETAL GEOMETRY
+   A single tapered, pointed shape reused (at different sizes)
+   for grass, leaves, petals and fronds — keeps everything in
+   the same visual "family" without needing any textures.
+--------------------------------------------------------- */
+function makeBladeGeometry(width, length){
+  const w = width / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.quadraticCurveTo(w, length * 0.35, 0, length);
+  shape.quadraticCurveTo(-w, length * 0.35, 0, 0);
+  return new THREE.ShapeGeometry(shape, 4);
+}
+
+// Broad, rounded-base leaf (elephant ear / banana style) — same family,
+// wider and blunter at the base than the pointed grass/petal blade above.
+function makeBigLeafGeometry(width, length){
+  const w = width / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0.14 * length);
+  shape.bezierCurveTo(w*1.1, 0.05*length, w, length*0.62, 0, length);
+  shape.bezierCurveTo(-w, length*0.62, -w*1.1, 0.05*length, 0, 0.14*length);
+  return new THREE.ShapeGeometry(shape, 6);
+}
+
+/* ---------------------------------------------------------
+   SIGN BOARDS
+   A small wooden post + plank per plant, with the plant's
+   name painted on via a canvas texture, angled to face
+   whoever is walking down the path.
+--------------------------------------------------------- */
+function makeSignTexture(text){
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f2ede0';
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.strokeStyle = '#4a3423';
+  ctx.lineWidth = 12;
+  ctx.strokeRect(8, 8, 496, 240);
+  ctx.fillStyle = '#1c2a1f';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'italic 600 56px "Times New Roman", serif';
+  ctx.fillText(text, 256, 128);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function buildSign(data, x, z){
+  const group = new THREE.Group();
+  const postMat = new THREE.MeshStandardMaterial({ color:0x5c4028, roughness:0.9 });
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.045,0.85,6), postMat);
+  post.position.y = 0.425;
+  post.castShadow = true;
+  group.add(post);
+
+  const woodMat = new THREE.MeshStandardMaterial({ color:0x6b4a34, roughness:0.9 });
+  const faceMat = new THREE.MeshStandardMaterial({ map: makeSignTexture(data.name), roughness:0.6 });
+  const plankGeo = new THREE.BoxGeometry(0.85, 0.42, 0.05);
+  const plank = new THREE.Mesh(plankGeo, [woodMat, woodMat, woodMat, woodMat, faceMat, woodMat]);
+  plank.position.y = 0.82;
+  plank.castShadow = true;
+  group.add(plank);
+
+  const dirSign = x >= 0 ? 1 : -1;
+  group.position.set(x - dirSign*0.85, 0, z);
+  group.rotation.y = -dirSign * Math.PI/2;
+  return group;
+}
+
+/* ---------------------------------------------------------
+   PLANT MESH BUILDERS (stylized, procedural, no textures)
+--------------------------------------------------------- */
+function buildLavender(color){
+  const group = new THREE.Group();
+  const stemMat = new THREE.MeshStandardMaterial({ color:0x6b8a5a, roughness:0.85 });
+  const bloomMat = new THREE.MeshStandardMaterial({ color, roughness:0.6 });
+  const leafMat = new THREE.MeshStandardMaterial({ color:0x8aa878, roughness:0.8, side:THREE.DoubleSide });
+
+  for(let i=0;i<11;i++){
+    const stemH = 0.85 + Math.random()*0.3;
+    const a = Math.random()*Math.PI*2, r = Math.random()*0.35;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.02,stemH,5), stemMat);
+    stem.position.set(Math.cos(a)*r, stemH/2, Math.sin(a)*r);
+    stem.castShadow = true;
+    group.add(stem);
+    for(let b=0;b<6;b++){
+      const floret = new THREE.Mesh(new THREE.SphereGeometry(0.045 - b*0.003, 5, 5), bloomMat);
+      floret.position.set(stem.position.x, stemH - 0.02 + b*0.045, stem.position.z);
+      floret.castShadow = true;
+      group.add(floret);
+    }
+  }
+  for(let i=0;i<7;i++){
+    const a = (i/7)*Math.PI*2;
+    const leaf = new THREE.Mesh(makeBladeGeometry(0.05, 0.22), leafMat);
+    leaf.position.set(Math.cos(a)*0.14, 0.03, Math.sin(a)*0.14);
+    leaf.rotation.x = -1.3;
+    leaf.rotation.y = -a;
+    leaf.castShadow = true;
+    group.add(leaf);
+  }
+  return group;
+}
+
+function buildFrond(length, color){
+  const frond = new THREE.Group();
+  const ribMat = new THREE.MeshStandardMaterial({ color:0x3d5a30, roughness:0.9 });
+  const leafletMat = new THREE.MeshStandardMaterial({ color, roughness:0.8, side:THREE.DoubleSide });
+
+  const rib = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.02,length,5), ribMat);
+  rib.position.y = length/2;
+  rib.castShadow = true;
+  frond.add(rib);
+
+  const segments = 8;
+  for(let i=1;i<=segments;i++){
+    const t = i/segments;
+    const y = t*length;
+    const leafletLen = 0.17 * (1 - t*0.55);
+    const geo = makeBladeGeometry(leafletLen*0.55, leafletLen);
+    const left = new THREE.Mesh(geo, leafletMat);
+    left.position.set(0, y, 0);
+    left.rotation.y = Math.PI/2;
+    left.rotation.z = 0.55;
+    left.castShadow = true;
+    frond.add(left);
+    const right = left.clone();
+    right.rotation.z = -0.55;
+    right.rotation.y = -Math.PI/2;
+    frond.add(right);
+  }
+  return frond;
+}
+
+function buildFern(color){
+  const group = new THREE.Group();
+  const frondCount = 9;
+  for(let i=0;i<frondCount;i++){
+    const frond = buildFrond(0.7 + Math.random()*0.35, color);
+    frond.rotation.y = (i/frondCount)*Math.PI*2 + Math.random()*0.2;
+    frond.rotation.x = -0.55 - Math.random()*0.3;
+    group.add(frond);
+  }
+  return group;
+}
+
+function buildRoseBloom(color){
+  const bloom = new THREE.Group();
+  const petalMat = new THREE.MeshStandardMaterial({ color, roughness:0.5, side:THREE.DoubleSide });
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.045,6,6), petalMat);
+  bloom.add(core);
+  const rings = [
+    { count:5, radius:0.02, len:0.09, tilt:0.25 },
+    { count:7, radius:0.055, len:0.13, tilt:0.65 },
+    { count:8, radius:0.09, len:0.16, tilt:1.1 }
+  ];
+  rings.forEach(ring => {
+    for(let i=0;i<ring.count;i++){
+      const a = (i/ring.count)*Math.PI*2 + Math.random()*0.3;
+      const petal = new THREE.Mesh(makeBladeGeometry(ring.len*0.85, ring.len), petalMat);
+      petal.position.set(Math.cos(a)*ring.radius, 0, Math.sin(a)*ring.radius);
+      petal.rotation.y = -a + Math.PI/2;
+      petal.rotation.x = ring.tilt;
+      petal.castShadow = true;
+      bloom.add(petal);
+    }
+  });
+  return bloom;
+}
+
+function buildRose(color){
+  const group = new THREE.Group();
+  const stemMat = new THREE.MeshStandardMaterial({ color:0x3d6b35, roughness:0.85 });
+  const leafMat = new THREE.MeshStandardMaterial({ color:0x3f7038, roughness:0.75, side:THREE.DoubleSide });
+
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.055,1.1,6), stemMat);
+  stem.position.y = 0.55; stem.castShadow = true;
+  group.add(stem);
+
+  for(let i=0;i<7;i++){
+    const t = 0.2 + Math.random()*0.65;
+    const leaf = new THREE.Mesh(makeBladeGeometry(0.09,0.18), leafMat);
+    leaf.position.set(Math.sin(t*9)*0.09, t*1.1, Math.cos(t*9)*0.09);
+    leaf.rotation.y = Math.random()*Math.PI*2;
+    leaf.rotation.x = -0.6 + Math.random()*0.4;
+    leaf.castShadow = true;
+    group.add(leaf);
+  }
+
+  const bloomCount = 3 + Math.floor(Math.random()*2);
+  for(let i=0;i<bloomCount;i++){
+    const bloom = buildRoseBloom(color);
+    const a = Math.random()*Math.PI*2, r = Math.random()*0.15;
+    bloom.position.set(Math.cos(a)*r, 1.05 + Math.random()*0.2, Math.sin(a)*r);
+    bloom.rotation.y = Math.random()*Math.PI*2;
+    group.add(bloom);
+  }
+  return group;
+}
+
+function buildSunflowerHead(color){
+  const head = new THREE.Group();
+  const centerMat = new THREE.MeshStandardMaterial({ color:0x5a4025, roughness:0.9 });
+  const center = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.06,16), centerMat);
+  center.rotation.x = Math.PI/2;
+  center.castShadow = true;
+  head.add(center);
+
+  const petalMat = new THREE.MeshStandardMaterial({ color, roughness:0.6, side:THREE.DoubleSide });
+  const petalCount = 18;
+  for(let i=0;i<petalCount;i++){
+    const a = (i/petalCount)*Math.PI*2;
+    const petal = new THREE.Mesh(makeBladeGeometry(0.09,0.22), petalMat);
+    petal.position.set(Math.cos(a)*0.25, 0, Math.sin(a)*0.25);
+    petal.rotation.x = -Math.PI/2;
+    petal.rotation.z = -a;
+    petal.castShadow = true;
+    head.add(petal);
+  }
+  return head;
+}
+
+function buildSunflower(color){
+  const group = new THREE.Group();
+  const stemMat = new THREE.MeshStandardMaterial({ color:0x4a6b3a, roughness:0.85 });
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.08,1.8,6), stemMat);
+  stem.position.y = 0.9; stem.castShadow = true;
+  group.add(stem);
+
+  const leafMat = new THREE.MeshStandardMaterial({ color:0x4f7a3f, roughness:0.75, side:THREE.DoubleSide });
+  for(let i=0;i<3;i++){
+    const leaf = new THREE.Mesh(makeBladeGeometry(0.26,0.48), leafMat);
+    leaf.position.set(0, 0.5 + i*0.4, 0);
+    leaf.rotation.y = i*2.1;
+    leaf.rotation.x = -0.35;
+    leaf.castShadow = true;
+    group.add(leaf);
+  }
+
+  const head = buildSunflowerHead(color);
+  head.position.y = 1.85;
+  head.rotation.x = 0.3;
+  group.add(head);
+  return group;
+}
+
+function buildSucculent(color){
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color, roughness:0.4, side:THREE.DoubleSide });
+  const rings = [
+    { n:6, r:0.22, len:0.3 },
+    { n:8, r:0.14, len:0.22 },
+    { n:9, r:0.06, len:0.14 }
+  ];
+  rings.forEach((ring, ri) => {
+    for(let i=0;i<ring.n;i++){
+      const a = (i/ring.n)*Math.PI*2 + ri*0.4;
+      const leaf = new THREE.Mesh(makeBladeGeometry(ring.len*0.5, ring.len), mat);
+      leaf.position.set(Math.cos(a)*ring.r*0.35, 0.04 + ri*0.05, Math.sin(a)*ring.r*0.35);
+      leaf.rotation.y = -a;
+      leaf.rotation.x = -0.9 + ri*0.25;
+      leaf.castShadow = true;
+      group.add(leaf);
+    }
+  });
+  return group;
+}
+
+function buildBambooClump(color){
+  const group = new THREE.Group();
+  const culmMat = new THREE.MeshStandardMaterial({ color, roughness:0.4 });
+  const nodeMat = new THREE.MeshStandardMaterial({ color:0x5c7a3a, roughness:0.6 });
+  const leafMat = new THREE.MeshStandardMaterial({ color:0x7fa855, roughness:0.7, side:THREE.DoubleSide });
+
+  for(let i=0;i<5;i++){
+    const h = 2.2 + Math.random()*0.9;
+    const a = Math.random()*Math.PI*2, r = Math.random()*0.3;
+    const culm = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,h,7), culmMat);
+    culm.position.set(Math.cos(a)*r, h/2, Math.sin(a)*r);
+    culm.castShadow = true;
+    group.add(culm);
+
+    const nodeCount = Math.floor(h/0.4);
+    for(let n=1;n<nodeCount;n++){
+      const node = new THREE.Mesh(new THREE.TorusGeometry(0.06,0.012,5,10), nodeMat);
+      node.rotation.x = Math.PI/2;
+      node.position.set(culm.position.x, n*0.4, culm.position.z);
+      group.add(node);
+    }
+
+    const leafCount = 5 + Math.floor(Math.random()*3);
+    for(let l=0;l<leafCount;l++){
+      const leaf = new THREE.Mesh(makeBladeGeometry(0.06, 0.35 + Math.random()*0.15), leafMat);
+      const ly = h*0.6 + Math.random()*h*0.4;
+      leaf.position.set(culm.position.x, ly, culm.position.z);
+      leaf.rotation.y = Math.random()*Math.PI*2;
+      leaf.rotation.x = -0.9 - Math.random()*0.5;
+      leaf.castShadow = true;
+      group.add(leaf);
+    }
+  }
+  return group;
+}
+
+function buildBigLeafPlant(color){
+  const group = new THREE.Group();
+  const stemMat = new THREE.MeshStandardMaterial({ color:0x3d5a34, roughness:0.8 });
+  const leafMat = new THREE.MeshStandardMaterial({ color, roughness:0.5, side:THREE.DoubleSide });
+
+  const leafCount = 5 + Math.floor(Math.random()*2);
+  for(let i=0;i<leafCount;i++){
+    const h = 0.55 + Math.random()*0.6;
+    const a = (i/leafCount)*Math.PI*2 + Math.random()*0.3;
+
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.045,h,6), stemMat);
+    stem.position.set(Math.cos(a)*0.12, h/2, Math.sin(a)*0.12);
+    stem.rotation.z = Math.cos(a)*0.25;
+    stem.rotation.x = Math.sin(a)*0.25;
+    stem.castShadow = true;
+    group.add(stem);
+
+    const leafLen = 0.8 + Math.random()*0.4;
+    const leafW = leafLen * 0.65;
+    const leaf = new THREE.Mesh(makeBigLeafGeometry(leafW, leafLen), leafMat);
+    leaf.position.set(stem.position.x, h, stem.position.z);
+    leaf.rotation.x = -1.15 - Math.random()*0.3;
+    leaf.rotation.y = a;
+    leaf.castShadow = true;
+    group.add(leaf);
+  }
+  return group;
+}
+
+function buildPlantMesh(key, color){
+  let group;
+  if(key === 'lavender') group = buildLavender(color);
+  else if(key === 'fern') group = buildFern(color);
+  else if(key === 'rose') group = buildRose(color);
+  else if(key === 'sunflower') group = buildSunflower(color);
+  else if(key === 'succulent') group = buildSucculent(color);
+  else if(key === 'bamboo') group = buildBambooClump(color);
+  else if(key === 'elephant-ear') group = buildBigLeafPlant(color);
+  else group = new THREE.Group();
+
+  // invisible bigger hit-sphere for easier clicking
+  const hit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.9, 8, 8),
+    new THREE.MeshBasicMaterial({ visible:false })
+  );
+  hit.position.y = 0.8;
+  group.add(hit);
+
+  return group;
+}
+
+/* ---------------------------------------------------------
+   PLACE PLANTS ALONG THE PATH
+--------------------------------------------------------- */
+const plantMeshes = [];
+const positions = [
+  [-3.2, -2], [3.0, -4], [-3.6, -9], [3.4, -12], [-3.0, -18], [3.2, -22], [-3.6, -27]
+];
+
+PLANT_DATA.forEach((data, i) => {
+  const [x, z] = positions[i];
+  const mesh = buildPlantMesh(data.key, data.color);
+  mesh.position.set(x, 0, z);
+  mesh.rotation.y = Math.random()*Math.PI*2;
+  const s = 0.9 + Math.random()*0.25;
+  mesh.scale.set(s, s, s);
+  mesh.userData = data;
+  mesh.traverse(o => { o.userData.rootData = data; });
+  scene.add(mesh);
+  plantMeshes.push(mesh);
+
+  // small ground marker
+  const marker = new THREE.Mesh(new THREE.CircleGeometry(0.7, 16), new THREE.MeshStandardMaterial({ color:0x3d5a38, roughness:1 }));
+  marker.rotation.x = -Math.PI/2;
+  marker.position.set(x, 0.005, z);
+  marker.receiveShadow = true;
+  scene.add(marker);
+});
+
+// scattered background trees for atmosphere (non-interactive)
+for(let i=0;i<24;i++){
+  const a = Math.random()*Math.PI*2;
+  const r = 20 + Math.random()*22;
+  const x = Math.cos(a)*r, z = -10 + Math.sin(a)*r;
+  const h = 3 + Math.random()*2.5;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.2,h,6), new THREE.MeshStandardMaterial({color:0x5a4530, roughness:1}));
+  trunk.position.set(x, h/2, z);
+  trunk.castShadow = true;
+  scene.add(trunk);
+  const foliage = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2 + Math.random()*0.6, 0), new THREE.MeshStandardMaterial({color:0x2f5c34, roughness:0.9}));
+  foliage.position.set(x, h + 0.8, z);
+  foliage.castShadow = true;
+  scene.add(foliage);
+}
+
+/* ---------------------------------------------------------
+   CLOUDS
+   Low-poly puffs (clustered icosahedra, same family as the
+   foliage) drifting slowly across the sky. Excluded from fog
+   so they stay visible at distance.
+--------------------------------------------------------- */
+const cloudMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:1, flatShading:true, fog:false });
+
+function makeCloud(){
+  const cloud = new THREE.Group();
+  const puffCount = 5 + Math.floor(Math.random()*4);
+  for(let i=0;i<puffCount;i++){
+    const s = 1.1 + Math.random()*1.9;
+    const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), cloudMat);
+    puff.position.set((Math.random()-0.5)*4.5, (Math.random()-0.5)*0.7, (Math.random()-0.5)*2.2);
+    cloud.add(puff);
+  }
+  return cloud;
+}
+
+const clouds = [];
+const CLOUD_BOUND = 70;
+for(let i=0;i<12;i++){
+  const cloud = makeCloud();
+  cloud.position.set(
+    (Math.random()-0.5) * CLOUD_BOUND * 2,
+    22 + Math.random()*10,
+    -30 + (Math.random()-0.5) * 90
+  );
+  const s = 0.8 + Math.random()*1.1;
+  cloud.scale.set(s, s*0.7, s);
+  cloud.userData.speed = 0.35 + Math.random()*0.5;
+  scene.add(cloud);
+  clouds.push(cloud);
+}
+
+/* ---------------------------------------------------------
+   GRASS FIELD (instanced, wind-animated via shader)
+--------------------------------------------------------- */
+let grassMaterial = null;
+
+function buildGrassField(){
+  const bladeGeo = makeBladeGeometry(0.06, 0.5);
+  const count = 9000;
+
+  grassMaterial = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float aOffset;
+      varying vec2 vUv;
+      uniform float uTime;
+      void main(){
+        vUv = uv;
+        vec3 pos = position;
+        float bend = uv.y * uv.y;
+        float sway = sin(uTime * 1.6 + aOffset) * 0.16;
+        float sway2 = cos(uTime * 1.1 + aOffset * 1.7) * 0.06;
+        pos.x += sway * bend;
+        pos.z += sway2 * bend;
+        vec4 worldPos = instanceMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      void main(){
+        vec3 base = mix(vec3(0.14,0.30,0.10), vec3(0.58,0.74,0.30), vUv.y);
+        gl_FragColor = vec4(base, 1.0);
+      }
+    `,
+    side: THREE.DoubleSide
+  });
+
+  const offsets = new Float32Array(count);
+  bladeGeo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(offsets, 1));
+
+  const mesh = new THREE.InstancedMesh(bladeGeo, grassMaterial, count);
+  const dummy = new THREE.Object3D();
+
+  let idx = 0;
+  let attempts = 0;
+  while(idx < count && attempts < count * 4){
+    attempts++;
+    const x = (Math.random()-0.5)*80;
+    const z = -20 + (Math.random()-0.5)*80;
+
+    // skip the path
+    if(Math.abs(x) < 2.0 && z > -42 && z < 12) continue;
+
+    // skip near plant markers
+    let tooClose = false;
+    for(const p of positions){
+      const dx = x - p[0], dz = z - p[1];
+      if(dx*dx + dz*dz < 1.4*1.4){ tooClose = true; break; }
+    }
+    if(tooClose) continue;
+
+    dummy.position.set(x, 0, z);
+    dummy.rotation.y = Math.random()*Math.PI*2;
+    const s = 0.6 + Math.random()*0.8;
+    dummy.scale.set(s, s * (0.75 + Math.random()*0.6), s);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(idx, dummy.matrix);
+    offsets[idx] = Math.random()*Math.PI*2;
+    idx++;
+  }
+  bladeGeo.attributes.aOffset.needsUpdate = true;
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  scene.add(mesh);
+}
+
+buildGrassField();
+
+document.getElementById('loadingScreen').style.display = 'none';
+document.getElementById('startScreen').style.display = 'flex';
+
+/* ---------------------------------------------------------
+   FIRST-PERSON CONTROLS (pointer lock)
+--------------------------------------------------------- */
+let yaw = 0, pitch = 0;
+const move = { forward:false, back:false, left:false, right:false };
+const velocity = new THREE.Vector3();
+const PLAYER_SPEED = 4.2;
+let locked = false;
+
+const canvas = renderer.domElement;
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('startScreen').style.display = 'none';
+  canvas.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  locked = (document.pointerLockElement === canvas);
+});
+
+document.addEventListener('mousemove', (e) => {
+  if(!locked) return;
+  yaw -= e.movementX * 0.0022;
+  pitch -= e.movementY * 0.0022;
+  pitch = Math.max(-Math.PI/2 + 0.05, Math.min(Math.PI/2 - 0.05, pitch));
+});
+
+window.addEventListener('keydown', (e) => {
+  if(e.code === 'KeyW') move.forward = true;
+  if(e.code === 'KeyS') move.back = true;
+  if(e.code === 'KeyA') move.left = true;
+  if(e.code === 'KeyD') move.right = true;
+});
+window.addEventListener('keyup', (e) => {
+  if(e.code === 'KeyW') move.forward = false;
+  if(e.code === 'KeyS') move.back = false;
+  if(e.code === 'KeyA') move.left = false;
+  if(e.code === 'KeyD') move.right = false;
+});
+
+/* ---------------------------------------------------------
+   CLICK -> RAYCAST -> OPEN PANEL
+--------------------------------------------------------- */
+const raycaster = new THREE.Raycaster();
+const centerVec = new THREE.Vector2(0, 0);
+const panel = document.getElementById('panel');
+const panelInner = document.getElementById('panelInner');
+const panelClose = document.getElementById('panelClose');
+const crosshair = document.getElementById('crosshair');
+let hoveredPlant = null;
+let panelOpen = false;
+
+function findPlantData(obj){
+  let o = obj;
+  while(o){
+    if(o.userData && o.userData.rootData) return o.userData.rootData;
+    o = o.parent;
+  }
+  return null;
+}
+
+function updateHoverCheck(){
+  raycaster.setFromCamera(centerVec, camera);
+  const hits = raycaster.intersectObjects(plantMeshes, true);
+  if(hits.length > 0 && hits[0].distance < 6){
+    hoveredPlant = findPlantData(hits[0].object);
+    crosshair.classList.add('hover');
+  } else {
+    hoveredPlant = null;
+    crosshair.classList.remove('hover');
+  }
+}
+
+function shadeColor(hex, percent){
+  const num = parseInt(hex.replace('#',''), 16);
+  let r = (num >> 16) + Math.round(2.55 * percent);
+  let g = ((num >> 8) & 0x00FF) + Math.round(2.55 * percent);
+  let b = (num & 0x0000FF) + Math.round(2.55 * percent);
+  r = Math.min(255, Math.max(0, r));
+  g = Math.min(255, Math.max(0, g));
+  b = Math.min(255, Math.max(0, b));
+  return '#' + (0x1000000 + r*0x10000 + g*0x100 + b).toString(16).slice(1);
+}
+
+function openPanel(data){
+  panelOpen = true;
+  panel.style.setProperty('--accent', data.color);
+  panelInner.innerHTML = `
+    <div class="panel-header">
+      <div class="panel-stamp">N${data.number}</div>
+      <div class="panel-classification">
+        <div class="panel-eyebrow">${data.eyebrow}<span class="divider">·</span><span class="panel-family">Fam. ${data.family}</span></div>
+      </div>
+    </div>
+    <div class="panel-name">${data.name}</div>
+    <div class="panel-latin">${data.latin}</div>
+    <div class="panel-swatch" style="background:linear-gradient(135deg, ${shadeColor(data.color,18)} 0%, ${data.color} 55%, ${shadeColor(data.color,-22)} 100%)">
+      <svg class="panel-swatch-icon" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <path d="M100 190 C40 150 20 90 60 30 C100 -10 160 20 170 70 C180 130 140 175 100 190 Z"/>
+        <path d="M100 185 L100 40 M100 100 L70 70 M100 120 L130 95 M100 145 L75 120 M100 160 L128 138"/>
+      </svg>
+    </div>
+    <div class="panel-plate-caption">specimen study — plate n${data.number}</div>
+    <div class="panel-section">
+      <div class="panel-label">About</div>
+      <div class="panel-text">${data.description}</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Medicinal Value</div>
+      <div class="panel-text">${data.medicinal}</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Traditionally Helps With</div>
+      <div class="panel-tags">
+        ${data.cures.map(c => `<span class="panel-tag">${c}</span>`).join('')}
+      </div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Details</div>
+      <div class="panel-stats-grid">
+        ${data.stats.map(([k,v]) => `<div class="stat-row"><span>${k}</span><span>${v}</span></div>`).join('')}
+      </div>
+    </div>
+  `;
+  panel.classList.add('open');
+  document.exitPointerLock();
+}
+
+function closePanel(){
+  panelOpen = false;
+  panel.classList.remove('open');
+  canvas.requestPointerLock();
+}
+
+panelClose.addEventListener('click', closePanel);
+
+canvas.addEventListener('click', () => {
+  if(!locked && !panelOpen){
+    canvas.requestPointerLock();
+    return;
+  }
+  if(locked && hoveredPlant){
+    openPanel(hoveredPlant);
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  if(e.code === 'Escape' && panelOpen) closePanel();
+});
+
+/* ---------------------------------------------------------
+   ANIMATION LOOP
+--------------------------------------------------------- */
+const clock = new THREE.Clock();
+const forwardVec = new THREE.Vector3();
+const rightVec = new THREE.Vector3();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if(grassMaterial) grassMaterial.uniforms.uTime.value = clock.elapsedTime;
+
+  clouds.forEach(cloud => {
+    cloud.position.x += cloud.userData.speed * dt;
+    if(cloud.position.x > CLOUD_BOUND) cloud.position.x = -CLOUD_BOUND;
+  });
+
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+
+  if(locked){
+    forwardVec.set(Math.sin(yaw), 0, Math.cos(yaw));
+    rightVec.set(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
+
+    velocity.set(0,0,0);
+    if(move.forward) velocity.sub(forwardVec);
+    if(move.back) velocity.add(forwardVec);
+    if(move.left) velocity.sub(rightVec);
+    if(move.right) velocity.add(rightVec);
+    if(velocity.lengthSq() > 0){
+      velocity.normalize().multiplyScalar(PLAYER_SPEED * dt);
+      camera.position.add(velocity);
+    }
+    camera.position.x = Math.max(-40, Math.min(40, camera.position.x));
+    camera.position.z = Math.max(-45, Math.min(15, camera.position.z));
+
+    updateHoverCheck();
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
